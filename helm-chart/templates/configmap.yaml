@@ -5,4 +5,5 @@ metadata:
   labels:
     {{- include "taskly.labels" . | nindent 4 }}
 data:
-  next-public-domain: {{ .Values.nextPublicDomain | quote }}
+  shopify-app-url: {{ .Values.shopify.appUrl | quote }}
+  shopify-scopes: {{ .Values.shopify.scopes | quote }}
