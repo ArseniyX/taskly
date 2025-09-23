@@ -69,5 +69,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ["@shopify/app-bridge-react", "@shopify/polaris"],
+    esbuildOptions: {
+      loader: { ".json": "json" },
+    },
   },
 }) satisfies UserConfig;
