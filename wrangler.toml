@@ -1,3 +1,4 @@
 name = "taskly"
+compatibility_date = "2025-09-15"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "build/client"
