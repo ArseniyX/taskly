@@ -1,7 +1,7 @@
 # Learn more about configuring your app at https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "87ea287a9499ad9b411948245394cde0"
-name = "Opify"
+name = "Taskly"
 application_url = "https://operator-shopify.pages.dev"
 embedded = true
 

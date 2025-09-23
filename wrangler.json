@@ -1,0 +1,14 @@
+{
+  "name": "taskly",
+  "compatibility_date": "2023-10-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "build": {
+    "command": "npm run build"
+  },
+  "upload": [
+    {
+      "format": "service-worker",
+      "dir": "build/client"
+    }
+  ]
+}
