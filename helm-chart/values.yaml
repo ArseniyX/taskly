@@ -1,0 +1,81 @@
+# Default values for taskly
+replicaCount: 1
+
+image:
+  repository: ghcr.io/user/taskly
+  pullPolicy: IfNotPresent
+  tag: ""
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext: {}
+
+securityContext: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  hosts:
+    - host: taskly.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: chat-with-db-tls
+    #   hosts:
+    #     - chatwithdb.com
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 100
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Application specific configuration
+app:
+  nodeEnv: production
+  port: 3000
+  hostname: "0.0.0.0"
+
+# Database configuration
+database:
+  url: ""
+
+# Shopify configuration
+shopify:
+  appUrl: "https://tasklyai.space"
+  webhookEndpoint: "/webhooks"
+  clientId: ""
+  clientSecret: ""
+  scopes: "read_customers,read_orders,read_product_listings,read_products,write_customers,write_discounts,write_fulfillments,write_inventory,write_locations,write_orders,write_price_rules,write_products"

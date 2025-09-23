@@ -1,0 +1,36 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "taskly.fullname" . }}-route
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "taskly.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- range $entrypoint := regexSplit "," (index .Values.ingress.annotations "traefik.ingress.kubernetes.io/router.entrypoints") -1 }}
+    - {{ trim $entrypoint }}
+    {{- end }}
+  routes:
+    {{- range .Values.ingress.hosts }}
+    - match: Host(`{{ .host }}`)
+      kind: Rule
+      services:
+        - name: {{ include "taskly.fullname" $ }}
+          namespace: {{ $.Release.Namespace }}
+          port: {{ $.Values.service.port }}
+    {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    domains:
+      {{- range .Values.ingress.tls }}
+      {{- range .hosts }}
+      - main: {{ . }}
+      {{- end }}
+      {{- end }}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: taskly
+description: A Shopify Remix application for task management
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - remix
+  - shopify
+  - task-management
+  - prisma
+home: https://github.com/user/taskly
+sources:
+  - https://github.com/user/taskly
+maintainers:
+  - name: Taskly Team
