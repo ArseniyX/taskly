@@ -33,7 +33,7 @@ ingress:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
   hosts:
-    - host: taskly.com
+    - host: tasklyai.space
       paths:
         - path: /
           pathType: Prefix
