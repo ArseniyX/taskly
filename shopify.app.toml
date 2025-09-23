@@ -2,7 +2,7 @@
 
 client_id = "87ea287a9499ad9b411948245394cde0"
 name = "Taskly"
-application_url = "https://operator-shopify.pages.dev"
+application_url = "https://tasklyai.space"
 embedded = true
 
 [build]
@@ -24,4 +24,4 @@ api_version = "2025-10"
 scopes = "read_customers,read_orders,read_product_listings,read_products,write_customers,write_discounts,write_fulfillments,write_inventory,write_locations,write_orders,write_price_rules,write_products"
 
 [auth]
-redirect_urls = [ "https://operator-shopify.pages.dev/api/auth" ]
+redirect_urls = [ "https://tasklyai.space/api/auth" ]
