@@ -17,7 +17,7 @@
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
-    "postinstall": "sed -i 's/ with { type: \\'json\\' }//g' node_modules/@shopify/**/**/*.mjs"
+    "postinstall": "find node_modules/@shopify -type f -name '*.mjs' -exec sed -i 's/ with { type: \"json\" }//g' {} +"
   },
   "type": "module",
   "engines": {
