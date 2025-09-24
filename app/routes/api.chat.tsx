@@ -1,8 +1,8 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
-import { chatService } from "../services/chat.server";
-import { aiService } from "../services/ai.server";
+import { chatController } from "../modules/chat";
+import { aiService } from "../modules/ai";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -13,7 +13,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   try {
     switch (action) {
       case "conversations":
-        const conversations = await chatService.getConversations(
+        const conversations = await chatController.getConversations(
           session.shop,
           userId || undefined,
         );
@@ -21,7 +21,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
       case "messages":
         const limit = parseInt(url.searchParams.get("limit") || "50");
-        const messages = await chatService.getMessages(
+        const messages = await chatController.getMessages(
           session.shop,
           userId || undefined,
           limit,
@@ -57,7 +57,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           );
         }
 
-        const savedMessage = await chatService.saveMessage({
+        const savedMessage = await chatController.saveMessage({
           shop: session.shop,
           userId: userId || undefined,
           message,
@@ -73,7 +73,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const userId = formData.get("userId")?.toString();
         const metadata = formData.get("metadata")?.toString();
 
-        const conversation = await chatService.createConversation({
+        const conversation = await chatController.createConversation({
           shop: session.shop,
           userId: userId || undefined,
           title,
@@ -95,7 +95,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           );
         }
 
-        const conversation = await chatService.updateConversation(
+        const conversation = await chatController.updateConversation(
           conversationId,
           session.shop,
           {
@@ -117,7 +117,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           );
         }
 
-        await chatService.deleteConversation(conversationId, session.shop);
+        await chatController.deleteConversation(conversationId, session.shop);
         return json({ success: true });
       }
 
@@ -131,7 +131,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
         try {
           // 1. Save user message
-          await chatService.saveMessage({
+          await chatController.saveMessage({
             shop: session.shop,
             userId: userId || undefined,
             message,
@@ -142,7 +142,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           const result = await aiService.processMessage(admin as any, message);
 
           // 3. Save assistant response with metadata
-          const savedResponse = await chatService.saveMessage({
+          const savedResponse = await chatController.saveMessage({
             shop: session.shop,
             userId: userId || undefined,
             message: result.summary,
@@ -169,7 +169,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
               ? error.message
               : "I'm having trouble processing your request. Please try again.";
 
-          const savedResponse = await chatService.saveMessage({
+          const savedResponse = await chatController.saveMessage({
             shop: session.shop,
             userId: userId || undefined,
             message: errorResponse,
