@@ -1,5 +1,5 @@
 import prisma from "../db.server";
-import { usageService } from "./usage.server";
+import { usageService } from "../modules/usage";
 
 export interface ChatMessageData {
   shop: string;
