@@ -1,4 +1,5 @@
 import prisma from "../db.server";
+import { usageService } from "./usage.server";
 
 export interface ChatMessageData {
   shop: string;
@@ -41,7 +42,15 @@ export class ChatService {
   }
 
   async saveMessage(data: ChatMessageData) {
-    return await prisma.chatMessage.create({
+    // Check usage limits for user messages (queries)
+    if (data.role === "user") {
+      const usageCheck = await usageService.checkUsageLimit(data.shop, "chat_query");
+      if (!usageCheck.isWithinLimit) {
+        throw new Error(`Usage limit exceeded. Current usage: ${usageCheck.currentUsage}/${usageCheck.limit} for ${usageCheck.planName}`);
+      }
+    }
+
+    const message = await prisma.chatMessage.create({
       data: {
         shop: data.shop,
         userId: data.userId,
@@ -50,6 +59,18 @@ export class ChatService {
         metadata: data.metadata ? JSON.stringify(data.metadata) : null,
       },
     });
+
+    // Track usage for user messages (queries)
+    if (data.role === "user") {
+      await usageService.trackUsage({
+        shop: data.shop,
+        userId: data.userId,
+        usageType: "chat_query",
+        metadata: { messageId: message.id },
+      });
+    }
+
+    return message;
   }
 
   async getMessages(shop: string, userId?: string, limit: number = 50) {

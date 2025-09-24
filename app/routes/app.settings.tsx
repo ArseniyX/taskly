@@ -73,15 +73,21 @@ export default function AppSettings() {
 
     fetcher.submit(
       { intent: "save_settings", ...settings },
-      { method: "POST" }
+      { method: "POST" },
     );
-  }, [appName, language, timezone, emailNotifications, pushNotifications, autoResponses, dataRetention, fetcher]);
+  }, [
+    appName,
+    language,
+    timezone,
+    emailNotifications,
+    pushNotifications,
+    autoResponses,
+    dataRetention,
+    fetcher,
+  ]);
 
   const handleResetApiKey = useCallback(() => {
-    fetcher.submit(
-      { intent: "reset_api_key" },
-      { method: "POST" }
-    );
+    fetcher.submit({ intent: "reset_api_key" }, { method: "POST" });
   }, [fetcher]);
 
   const languageOptions = [
@@ -126,6 +132,7 @@ export default function AppSettings() {
                 </Text>
                 <FormLayout>
                   <TextField
+                    autoComplete="off"
                     label="App Name"
                     value={appName}
                     onChange={setAppName}
@@ -221,8 +228,9 @@ export default function AppSettings() {
                   Use this API key to integrate with external services.
                 </Text>
                 <TextField
+                  autoComplete="off"
                   label="API Key"
-                  value={fetcher.data?.newApiKey || apiKey}
+                  value={(fetcher.data as any)?.newApiKey || apiKey}
                   readOnly
                   connectedRight={
                     <Button onClick={handleResetApiKey} loading={isLoading}>

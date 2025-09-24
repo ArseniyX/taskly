@@ -55,3 +55,41 @@ model ChatConversation {
 
   @@index([shop, updatedAt])
 }
+
+model Subscription {
+  id                String   @id @default(cuid())
+  shop              String   @unique
+  planName          String   // "Free Plan", "Pro Plan", "Enterprise Plan"
+  status            String   // "active", "canceled", "past_due", "trialing"
+  shopifySubscriptionId String? // Shopify's subscription ID
+  currentPeriodStart DateTime?
+  currentPeriodEnd   DateTime?
+  canceledAt        DateTime?
+  trialStart        DateTime?
+  trialEnd          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  isTest            Boolean  @default(false)
+
+  // Relations
+  usageRecords      UsageRecord[]
+
+  @@index([shop, status])
+}
+
+model UsageRecord {
+  id             String   @id @default(cuid())
+  shop           String
+  subscriptionId String
+  userId         String?
+  usageType      String   // "chat_query", "api_call", etc.
+  count          Int      @default(1)
+  date           DateTime @default(now())
+  metadata       String?  // JSON string for additional usage data
+
+  // Relations
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id], onDelete: Cascade)
+
+  @@index([shop, date])
+  @@index([subscriptionId, date])
+}

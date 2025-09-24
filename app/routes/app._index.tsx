@@ -12,6 +12,9 @@ import {
   InlineStack,
   Divider,
   Badge,
+  Banner,
+  Box,
+  Collapsible,
 } from "@shopify/polaris";
 import { ArrowUpIcon } from "@shopify/polaris-icons";
 import { TitleBar } from "@shopify/app-bridge-react";
@@ -120,8 +123,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     if (!currentConversationId) {
       const newConversation = await chatService.createConversation({
         shop: session.shop,
-        title: "Store Operations Chat",
-        metadata: { type: "operations_chat" },
+        title: "AI-Powered Store Operations Chat",
+        metadata: { type: "ai_operations_chat" },
       });
       currentConversationId = newConversation.id;
     }
@@ -133,74 +136,113 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       metadata: { conversationId: currentConversationId },
     });
 
-    let assistantResponse =
-      "I can help you with your store operations. Try asking me to 'search products' or 'show orders'.";
-    let responseData = null;
+    // Check if this is a GraphQL generation request
+    const isGraphQLRequest =
+      message.toLowerCase().includes("query") ||
+      message.toLowerCase().includes("graphql") ||
+      message.toLowerCase().includes("get") ||
+      message.toLowerCase().includes("find") ||
+      message.toLowerCase().includes("search") ||
+      message.toLowerCase().includes("show") ||
+      message.toLowerCase().includes("list");
 
-    if (
-      message.toLowerCase().includes("product") &&
-      message.toLowerCase().includes("search")
-    ) {
-      const searchTerm = message
-        .replace(/search|product|for|find/gi, "")
-        .trim();
-      const response = await admin.graphql(
-        `#graphql
-          query getProducts($first: Int!, $query: String) {
-            products(first: $first, query: $query) {
-              edges {
-                node {
-                  id
-                  title
-                  handle
-                  status
-                  totalInventory
-                  createdAt
-                }
-              }
-            }
-          }`,
-        {
-          variables: {
-            first: 10,
-            query: searchTerm || null,
+    let assistantResponse = "I can help you with your store operations. Try asking me specific questions about your products, orders, customers, or other store data!";
+    let responseData = null;
+    let generatedQuery = null;
+
+    if (isGraphQLRequest) {
+      try {
+        // Call our AI GraphQL generation API
+        const aiResponse = await fetch(`${process.env.SHOPIFY_APP_URL}/api/ai-graphql`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
           },
-        },
-      );
-      const responseJson = await response.json();
-      responseData = responseJson.data.products.edges;
-      assistantResponse = `Found ${responseData.length} products for "${searchTerm}":`;
-    } else if (message.toLowerCase().includes("order")) {
-      const response = await admin.graphql(
-        `#graphql
-          query getOrders($first: Int!) {
-            orders(first: $first) {
-              edges {
-                node {
-                  id
-                  name
-                  totalPriceSet {
-                    shopMoney {
-                      amount
-                      currencyCode
+          body: new URLSearchParams({
+            action: "generate_graphql",
+            message,
+            conversationId: currentConversationId,
+          }),
+        });
+
+        if (aiResponse.ok) {
+          const aiResult = await aiResponse.json();
+          if (aiResult.success) {
+            assistantResponse = aiResult.data.assistantMessage;
+            responseData = aiResult.data.executionResult?.data;
+            generatedQuery = aiResult.data.generatedQuery;
+          } else {
+            assistantResponse = `I had trouble generating a GraphQL query: ${aiResult.error}`;
+          }
+        } else {
+          assistantResponse = "I'm having trouble processing GraphQL requests right now. Please try again later.";
+        }
+      } catch (error) {
+        console.error("Error calling AI GraphQL service:", error);
+        assistantResponse = "I encountered an error while processing your request. Let me try a basic search instead.";
+
+        // Fallback to basic hardcoded queries
+        if (message.toLowerCase().includes("product")) {
+          const searchTerm = message.replace(/search|product|for|find|get|show|list/gi, "").trim();
+          const response = await admin.graphql(
+            `#graphql
+              query getProducts($first: Int!, $query: String) {
+                products(first: $first, query: $query) {
+                  edges {
+                    node {
+                      id
+                      title
+                      handle
+                      status
+                      totalInventory
+                      createdAt
                     }
                   }
-                  displayFinancialStatus
-                  fulfillmentStatus
-                  createdAt
                 }
-              }
-            }
-          }`,
-        {
-          variables: {
-            first: 10,
-          },
-        },
-      );
-      const responseJson = await response.json();
-      responseData = responseJson.data.orders.edges;
-      assistantResponse = `Found ${responseData.length} recent orders:`;
+              }`,
+            {
+              variables: {
+                first: 10,
+                query: searchTerm || null,
+              },
+            },
+          );
+          const responseJson = await response.json();
+          responseData = responseJson.data?.products?.edges;
+          assistantResponse = `Found ${responseData?.length || 0} products${searchTerm ? ` for "${searchTerm}"` : ''}:`;
+        } else if (message.toLowerCase().includes("order")) {
+          const response = await admin.graphql(
+            `#graphql
+              query getOrders($first: Int!) {
+                orders(first: $first) {
+                  edges {
+                    node {
+                      id
+                      name
+                      totalPriceSet {
+                        shopMoney {
+                          amount
+                          currencyCode
+                        }
+                      }
+                      displayFinancialStatus
+                      fulfillmentStatus
+                      createdAt
+                    }
+                  }
+                }
+              }`,
+            {
+              variables: {
+                first: 10,
+              },
+            },
+          );
+          const responseJson = await response.json();
+          responseData = responseJson.data?.orders?.edges;
+          assistantResponse = `Found ${responseData?.length || 0} recent orders:`;
+        }
+      }
     }
 
     await chatService.saveMessage({
@@ -210,6 +252,8 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       metadata: {
         conversationId: currentConversationId,
         data: responseData,
+        generatedQuery,
+        isAIGenerated: isGraphQLRequest,
       },
     });
 
@@ -218,6 +262,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       conversationId: currentConversationId,
       assistantResponse,
       data: responseData,
+      generatedQuery,
     };
   }
 
@@ -232,8 +277,15 @@ export default function ChatOperations() {
     loaderData.currentConversationId || null,
   );
   const [chatHistory, setChatHistory] = useState<
-    Array<{ type: "user" | "assistant"; content: string; data?: any }>
+    Array<{
+      type: "user" | "assistant";
+      content: string;
+      data?: any;
+      generatedQuery?: string;
+      isAIGenerated?: boolean;
+    }>
   >([]);
+  const [expandedQueries, setExpandedQueries] = useState<Set<number>>(new Set());
   const textFieldRef = useRef<HTMLDivElement>(null);
 
   const isLoading = ["loading", "submitting"].includes(fetcher.state);
@@ -244,6 +296,8 @@ export default function ChatOperations() {
         type: msg.role as "user" | "assistant",
         content: msg.message,
         data: msg.metadata?.data || null,
+        generatedQuery: msg.metadata?.generatedQuery || null,
+        isAIGenerated: msg.metadata?.isAIGenerated || false,
       }));
       setChatHistory(formattedMessages);
     }
@@ -308,10 +362,24 @@ export default function ChatOperations() {
           type: "assistant",
           content: data.assistantResponse,
           data: data.data,
+          generatedQuery: data.generatedQuery,
+          isAIGenerated: Boolean(data.generatedQuery),
         },
       ]);
     }
   }, [fetcher.data, conversationId]);
+
+  const toggleQueryExpansion = useCallback((index: number) => {
+    setExpandedQueries(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  }, []);
 
   return (
     <Page>
@@ -321,12 +389,19 @@ export default function ChatOperations() {
           <Card>
             <BlockStack gap="500">
               <Text as="h2" variant="headingMd">
-                Store Operations Chat
+                AI-Powered Store Operations Chat
               </Text>
               <Text variant="bodyMd" as="p">
-                Ask me about your store operations. I can help you search
-                products, view orders, and manage your store.
+                Ask me about your store data in natural language! I can generate and execute GraphQL queries to help you find products, orders, customers, and more. Try asking things like:
               </Text>
+              <Box paddingInlineStart="400">
+                <Text variant="bodySm" tone="subdued" as="p">
+                  • "Show me products with low inventory"<br/>
+                  • "Find orders from this week"<br/>
+                  • "Get customers who haven't ordered recently"<br/>
+                  • "List products by a specific vendor"
+                </Text>
+              </Box>
 
               <div
                 style={{
@@ -342,11 +417,46 @@ export default function ChatOperations() {
                     <div key={index}>
                       <InlineStack align="start" gap="200">
                         <Badge tone={msg.type === "user" ? "info" : "success"}>
-                          {msg.type === "user" ? "You" : "Assistant"}
+                          {msg.type === "user" ? "You" : "🤖 AI Assistant"}
                         </Badge>
-                        <Text as="p" variant="bodyMd">
-                          {msg.content}
-                        </Text>
+                        <div style={{ flex: 1 }}>
+                          <Text as="p" variant="bodyMd">
+                            {msg.content}
+                          </Text>
+
+                          {/* Show generated GraphQL query if available */}
+                          {msg.generatedQuery && msg.isAIGenerated && (
+                            <div style={{ marginTop: "8px" }}>
+                              <Button
+                                variant="plain"
+                                size="micro"
+                                onClick={() => toggleQueryExpansion(index)}
+                              >
+                                {expandedQueries.has(index) ? "Hide" : "Show"} Generated GraphQL Query
+                              </Button>
+                              <Collapsible
+                                open={expandedQueries.has(index)}
+                                id={`query-${index}`}
+                                transition={{duration: '200ms', timingFunction: 'ease-in-out'}}
+                              >
+                                <div style={{
+                                  marginTop: "8px",
+                                  padding: "12px",
+                                  backgroundColor: "#f8f9fa",
+                                  borderRadius: "6px",
+                                  border: "1px solid #e1e3e5",
+                                  fontFamily: "Monaco, Consolas, 'Lucida Console', monospace",
+                                  fontSize: "12px",
+                                  lineHeight: "1.4"
+                                }}>
+                                  <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>
+                                    {msg.generatedQuery}
+                                  </pre>
+                                </div>
+                              </Collapsible>
+                            </div>
+                          )}
+                        </div>
                       </InlineStack>
 
                       {msg.data && Array.isArray(msg.data) && (
@@ -431,7 +541,7 @@ export default function ChatOperations() {
                   labelHidden
                   value={message}
                   onChange={handleMessageChange}
-                  placeholder="Ask me about your store... (e.g., 'search products' or 'show orders')"
+                  placeholder="Ask me about your store data in natural language... (e.g., 'show me products with low inventory' or 'find recent orders')"
                   disabled={isLoading}
                   autoComplete="off"
                   multiline={3}
