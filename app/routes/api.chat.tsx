@@ -2,7 +2,7 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import { json } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 import { chatService } from "../services/chat.server";
-import { AIQueryGeneratorService } from "../services/ai-query-generator.server";
+import { aiService } from "../services/ai.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -126,62 +126,62 @@ export const action = async ({ request }: ActionFunctionArgs) => {
         const userId = formData.get("userId")?.toString();
 
         if (!message) {
-          return json(
-            { error: "Message is required" },
-            { status: 400 },
-          );
+          return json({ error: "Message is required" }, { status: 400 });
         }
 
-        // 1. Save user message
-        await chatService.saveMessage({
-          shop: session.shop,
-          userId: userId || undefined,
-          message,
-          role: "user",
-        });
+        try {
+          // 1. Save user message
+          await chatService.saveMessage({
+            shop: session.shop,
+            userId: userId || undefined,
+            message,
+            role: "user",
+          });
 
-        // 2. Identify intent and generate AI response
-        const aiService = new AIQueryGeneratorService();
-        const intent = aiService.identifyIntent(message);
+          // 2. Process message with unified AI service
+          const result = await aiService.processMessage(admin as any, message);
 
-        let assistantResponse = "";
+          // 3. Save assistant response with metadata
+          const savedResponse = await chatService.saveMessage({
+            shop: session.shop,
+            userId: userId || undefined,
+            message: result.summary,
+            role: "assistant",
+            metadata: {
+              intent: result.intent,
+              query: result.query,
+              executionResult: result.executionResult,
+            },
+          });
 
-        switch (intent) {
-          case "query": {
-            // Execute query flow
-            const result = await aiService.generateGraphQLQuery(admin, message);
-            assistantResponse = result.summary || "Here are your store results.";
-            break;
-          }
-          case "mutation": {
-            // For now, mutations are not implemented, just acknowledge
-            assistantResponse = "I understand you want to make changes to your store. Mutation operations are coming soon!";
-            break;
-          }
-          case "message": {
-            // Generate simple conversational response
-            assistantResponse = "I can help you with your store operations. Try asking me specific questions about your products, orders, customers, or other store data!";
-            break;
-          }
-          default: {
-            assistantResponse = "I'm not sure what you're looking for. Try asking me about your products, orders, or customers.";
-            break;
-          }
+          return json({
+            response: result.summary,
+            message: savedResponse,
+            intent: result.intent,
+            query: result.query,
+          });
+        } catch (error) {
+          console.error("Error processing message:", error);
+
+          // Save error response
+          const errorResponse =
+            error instanceof Error && error.message.includes("Usage limit")
+              ? error.message
+              : "I'm having trouble processing your request. Please try again.";
+
+          const savedResponse = await chatService.saveMessage({
+            shop: session.shop,
+            userId: userId || undefined,
+            message: errorResponse,
+            role: "assistant",
+          });
+
+          return json({
+            response: errorResponse,
+            message: savedResponse,
+            intent: "error",
+          });
         }
-
-        // 3. Save assistant response
-        const savedResponse = await chatService.saveMessage({
-          shop: session.shop,
-          userId: userId || undefined,
-          message: assistantResponse,
-          role: "assistant",
-        });
-
-        return json({
-          response: assistantResponse,
-          message: savedResponse,
-          intent
-        });
       }
 
       default:
