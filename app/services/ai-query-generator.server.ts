@@ -1,423 +1,226 @@
-import { openai } from "@ai-sdk/openai";
-import { generateObject, generateText } from "ai";
-import { z } from "zod";
-import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
-import { graphqlIntrospectionService } from "./graphql-introspection.server";
 
-// Schema for structured AI output
-const QueryAnalysisSchema = z.object({
-  operation: z.enum(["products", "orders", "customers", "collections"]),
-  intent: z.enum(["list", "search", "filter", "count", "details"]),
-  filters: z.array(z.object({
-    field: z.string(),
-    operator: z.enum(["equals", "contains", "greater_than", "less_than", "between"]),
-    value: z.string()
-  })).optional(),
-  fields: z.array(z.string()).optional(),
-  limit: z.number().min(1).max(100).default(10),
-  searchTerm: z.string().optional(),
-  sortBy: z.string().optional(),
-  sortOrder: z.enum(["ASC", "DESC"]).default("DESC")
-});
-
-type QueryAnalysis = z.infer<typeof QueryAnalysisSchema>;
+export interface QueryResult {
+  query: string;
+  variables: Record<string, any>;
+  explanation: string;
+  executionResult?: any;
+  summary: string;
+}
 
 export class AIQueryGeneratorService {
-  private openaiApiKey: string;
-
-  constructor() {
-    this.openaiApiKey = process.env.OPENAI_API_KEY || "";
-    if (!this.openaiApiKey) {
-      throw new Error("OPENAI_API_KEY environment variable is required");
-    }
-  }
-
   /**
-   * Analyze user query using OpenAI and generate structured output
-   */
-  async analyzeQuery(userQuery: string): Promise<QueryAnalysis> {
-    try {
-      const { object } = await generateObject({
-        model: openai("gpt-4-turbo"),
-        schema: QueryAnalysisSchema,
-        prompt: `
-Analyze this Shopify store query and extract structured information:
-
-User Query: "${userQuery}"
-
-Instructions:
-- Determine the main operation (products, orders, customers, or collections)
-- Identify the intent (list all, search for specific items, filter by criteria, etc.)
-- Extract any filters or search terms
-- Determine what fields the user might want to see
-- Set appropriate limits and sorting
-
-Examples:
-- "show me products with low inventory" → operation: products, filters: inventory < 10
-- "find orders from last week" → operation: orders, filters: createdAt > last week
-- "get customers who bought Nike products" → operation: customers, searchTerm: Nike
-- "list all collections" → operation: collections, intent: list
-
-Respond with structured JSON only.
-        `,
-        temperature: 0.1, // Low temperature for consistent structured output
-      });
-
-      return object;
-    } catch (error) {
-      console.error("AI query analysis failed:", error);
-
-      // Fallback to simple pattern matching
-      return this.fallbackAnalysis(userQuery);
-    }
-  }
-
-  /**
-   * Generate optimized GraphQL query using AI analysis and schema introspection
+   * Generate mock GraphQL query and results for UI testing
    */
   async generateGraphQLQuery(
-    admin: AdminApiContext,
-    userQuery: string
-  ): Promise<{
-    query: string;
-    variables: Record<string, any>;
-    explanation: string;
-    analysis: QueryAnalysis;
-  }> {
-    // Step 1: Analyze the query with AI
-    const analysis = await this.analyzeQuery(userQuery);
+    _admin: any,
+    userQuery: string,
+  ): Promise<QueryResult> {
+    console.log(`Processing query: "${userQuery}"`);
 
-    // Step 2: Get schema information for the operation
-    const availableFields = await graphqlIntrospectionService.getTypeFields(
-      admin,
-      this.getShopifyTypeName(analysis.operation)
-    );
+    // Simple query analysis
+    const operation = this.analyzeOperation(userQuery);
+    const mockData = this.getMockData(operation);
 
-    // Step 3: Generate optimized field selection
-    const selectedFields = await this.selectOptimalFields(
-      availableFields.map(f => f.name),
-      analysis,
-      userQuery
-    );
+    // Mock GraphQL query
+    const query = this.buildMockQuery(operation);
+    const variables = { first: 10 };
 
-    // Step 4: Build GraphQL query
-    const { query, variables } = await this.buildAdvancedQuery(
-      analysis,
-      selectedFields,
-      availableFields
-    );
-
-    // Step 5: Generate human explanation
-    const explanation = await this.generateExplanation(userQuery, analysis, query);
+    // Mock execution with delay to simulate API call
+    await this.delay(500);
 
     return {
       query,
       variables,
-      explanation,
-      analysis
+      explanation: `Generated a query to fetch ${operation} from your store`,
+      executionResult: mockData.executionResult,
+      summary: mockData.summary,
     };
   }
 
-  /**
-   * Use AI to select the most relevant fields based on user query
-   */
-  private async selectOptimalFields(
-    availableFields: string[],
-    analysis: QueryAnalysis,
-    userQuery: string
-  ): Promise<string[]> {
-    try {
-      const { text } = await generateText({
-        model: openai("gpt-4-turbo"),
-        prompt: `
-Given this user query: "${userQuery}"
-And these available GraphQL fields: ${availableFields.join(", ")}
+  private analyzeOperation(userQuery: string): string {
+    const query = userQuery.toLowerCase();
 
-Select the 5-8 most relevant fields that would answer the user's question.
-Always include "id" and at least one display field (title, name, displayName).
+    if (query.includes('order')) return 'orders';
+    if (query.includes('customer')) return 'customers';
+    if (query.includes('collection')) return 'collections';
 
-Consider:
-- What information would be most useful for this query?
-- What fields relate to the user's intent?
-- Include fields for filtering criteria mentioned
-
-Return ONLY a comma-separated list of field names, no explanations.
-
-Example: id, title, status, createdAt, totalInventory
-        `,
-        temperature: 0.2,
-      });
-
-      const fields = text.trim().split(",").map(f => f.trim());
-
-      // Ensure we have essential fields
-      const essentialFields = ["id"];
-      const displayFields = ["title", "name", "displayName"];
-      const hasDisplayField = fields.some(f => displayFields.includes(f));
-
-      if (!hasDisplayField) {
-        const availableDisplayField = availableFields.find(f => displayFields.includes(f));
-        if (availableDisplayField) {
-          fields.push(availableDisplayField);
-        }
-      }
-
-      return [...new Set([...essentialFields, ...fields])].slice(0, 8);
-    } catch (error) {
-      console.error("AI field selection failed:", error);
-      // Fallback to basic field selection
-      return this.getBasicFields(analysis.operation);
-    }
+    return 'products'; // default
   }
 
-  /**
-   * Build advanced GraphQL query with AI-driven structure
-   */
-  private async buildAdvancedQuery(
-    analysis: QueryAnalysis,
-    selectedFields: string[],
-    availableFields: any[]
-  ): Promise<{ query: string; variables: Record<string, any> }> {
-    const variables: Record<string, any> = {
-      first: analysis.limit
-    };
+  private buildMockQuery(operation: string): string {
+    const fields = this.getFields(operation);
 
-    // Build query string from search term and filters
-    const queryParts: string[] = [];
-
-    if (analysis.searchTerm) {
-      queryParts.push(analysis.searchTerm);
-    }
-
-    if (analysis.filters) {
-      for (const filter of analysis.filters) {
-        switch (filter.operator) {
-          case "equals":
-            queryParts.push(`${filter.field}:${filter.value}`);
-            break;
-          case "contains":
-            queryParts.push(`${filter.field}:*${filter.value}*`);
-            break;
-          case "greater_than":
-            queryParts.push(`${filter.field}:>${filter.value}`);
-            break;
-          case "less_than":
-            queryParts.push(`${filter.field}:<${filter.value}`);
-            break;
-        }
-      }
-    }
-
-    if (queryParts.length > 0) {
-      variables.query = queryParts.join(" AND ");
-    }
-
-    // Add sorting if specified
-    if (analysis.sortBy) {
-      variables.sortKey = this.mapSortField(analysis.sortBy, analysis.operation);
-      variables.reverse = analysis.sortOrder === "DESC";
-    }
-
-    // Build the GraphQL query string
-    const operationName = analysis.operation;
-    const queryName = `get${operationName.charAt(0).toUpperCase() + operationName.slice(1)}`;
-
-    let queryArgs = "($first: Int!";
-    if (variables.query) queryArgs += ", $query: String";
-    if (variables.sortKey) queryArgs += ", $sortKey: ProductSortKeys, $reverse: Boolean";
-    queryArgs += ")";
-
-    let operationArgs = "(first: $first";
-    if (variables.query) operationArgs += ", query: $query";
-    if (variables.sortKey) operationArgs += ", sortKey: $sortKey, reverse: $reverse";
-    operationArgs += ")";
-
-    const query = `#graphql
-query ${queryName}${queryArgs} {
-  ${operationName}${operationArgs} {
+    return `#graphql
+query get${operation.charAt(0).toUpperCase() + operation.slice(1)}($first: Int!) {
+  ${operation}(first: $first) {
     edges {
       node {
-        ${selectedFields.join('\n        ')}
-        ${this.addNestedFields(analysis, selectedFields)}
+        ${fields.join('\n        ')}
       }
     }
     pageInfo {
       hasNextPage
-      endCursor
     }
   }
 }`;
-
-    return { query, variables };
   }
 
-  /**
-   * Add nested fields based on analysis (variants, customers, etc.)
-   */
-  private addNestedFields(analysis: QueryAnalysis, selectedFields: string[]): string {
-    let nestedFields = "";
-
-    if (analysis.operation === "products") {
-      // Add variants if price-related query
-      if (analysis.filters?.some(f => f.field.includes("price")) ||
-          selectedFields.includes("price")) {
-        nestedFields += `
-        variants(first: 3) {
-          edges {
-            node {
-              id
-              title
-              price
-              compareAtPrice
-              availableForSale
-            }
-          }
-        }`;
-      }
-
-      // Add media if visual query
-      if (selectedFields.includes("image") || selectedFields.includes("media")) {
-        nestedFields += `
-        featuredMedia {
-          preview {
-            image {
-              url
-              altText
-            }
-          }
-        }`;
-      }
-    }
-
-    if (analysis.operation === "orders") {
-      // Add customer info for customer-related queries
-      if (analysis.filters?.some(f => f.field.includes("customer")) ||
-          selectedFields.includes("customer")) {
-        nestedFields += `
-        customer {
-          id
-          displayName
-          email
-        }`;
-      }
-
-      // Add line items for product-related order queries
-      if (analysis.filters?.some(f => f.field.includes("product")) ||
-          selectedFields.includes("lineItems")) {
-        nestedFields += `
-        lineItems(first: 3) {
-          edges {
-            node {
-              id
-              title
-              quantity
-              originalUnitPriceSet {
-                shopMoney {
-                  amount
-                  currencyCode
-                }
-              }
-            }
-          }
-        }`;
-      }
-    }
-
-    return nestedFields;
-  }
-
-  /**
-   * Generate human-readable explanation using AI
-   */
-  private async generateExplanation(
-    userQuery: string,
-    analysis: QueryAnalysis,
-    generatedQuery: string
-  ): Promise<string> {
-    try {
-      const { text } = await generateText({
-        model: openai("gpt-3.5-turbo"),
-        prompt: `
-Create a brief, friendly explanation of what this GraphQL query does for the user.
-
-User asked: "${userQuery}"
-Query analysis: ${JSON.stringify(analysis)}
-
-Write 2-3 sentences explaining:
-1. What data we're fetching
-2. Any filters or search criteria applied
-3. What fields are included
-
-Keep it conversational and helpful. Don't mention technical GraphQL details.
-        `,
-        temperature: 0.7,
-      });
-
-      return text.trim();
-    } catch (error) {
-      console.error("AI explanation generation failed:", error);
-      return `I generated a query to fetch ${analysis.operation} from your store${analysis.searchTerm ? ` matching "${analysis.searchTerm}"` : ''}. The query includes relevant fields and applies any filters you specified.`;
-    }
-  }
-
-  /**
-   * Fallback analysis when AI fails
-   */
-  private fallbackAnalysis(userQuery: string): QueryAnalysis {
-    const lowerQuery = userQuery.toLowerCase();
-
-    let operation: QueryAnalysis['operation'] = 'products';
-    if (lowerQuery.includes('order')) operation = 'orders';
-    else if (lowerQuery.includes('customer')) operation = 'customers';
-    else if (lowerQuery.includes('collection')) operation = 'collections';
-
-    return {
-      operation,
-      intent: 'list',
-      limit: 10,
-      sortOrder: 'DESC'
-    };
-  }
-
-  private getShopifyTypeName(operation: string): string {
-    const mapping = {
-      products: 'Product',
-      orders: 'Order',
-      customers: 'Customer',
-      collections: 'Collection'
-    };
-    return mapping[operation as keyof typeof mapping] || 'Product';
-  }
-
-  private getBasicFields(operation: string): string[] {
+  private getFields(operation: string): string[] {
     const fieldMap = {
-      products: ['id', 'title', 'status', 'totalInventory', 'createdAt'],
-      orders: ['id', 'name', 'totalPriceSet', 'displayFinancialStatus', 'createdAt'],
+      products: ['id', 'title', 'status', 'totalInventory', 'vendor', 'createdAt'],
+      orders: ['id', 'name', 'displayFinancialStatus', 'fulfillmentStatus', 'createdAt'],
       customers: ['id', 'displayName', 'email', 'phone', 'createdAt'],
-      collections: ['id', 'title', 'handle', 'description', 'createdAt']
+      collections: ['id', 'title', 'handle', 'description', 'createdAt'],
     };
+
     return fieldMap[operation as keyof typeof fieldMap] || fieldMap.products;
   }
 
-  private mapSortField(sortBy: string, operation: string): string {
-    // Map common sort terms to Shopify GraphQL sort keys
-    const sortMappings = {
+  private getMockData(operation: string) {
+    const mockData = {
       products: {
-        'created': 'CREATED_AT',
-        'updated': 'UPDATED_AT',
-        'title': 'TITLE',
-        'inventory': 'INVENTORY_TOTAL',
-        'price': 'PRICE'
+        executionResult: {
+          products: {
+            edges: [
+              {
+                node: {
+                  id: 'gid://shopify/Product/1',
+                  title: 'Awesome T-Shirt',
+                  status: 'ACTIVE',
+                  totalInventory: 50,
+                  vendor: 'Cool Brand',
+                  createdAt: '2024-01-15T10:00:00Z'
+                }
+              },
+              {
+                node: {
+                  id: 'gid://shopify/Product/2',
+                  title: 'Super Sneakers',
+                  status: 'ACTIVE',
+                  totalInventory: 25,
+                  vendor: 'Shoe Co',
+                  createdAt: '2024-01-20T15:30:00Z'
+                }
+              },
+              {
+                node: {
+                  id: 'gid://shopify/Product/3',
+                  title: 'Classic Jeans',
+                  status: 'DRAFT',
+                  totalInventory: 0,
+                  vendor: 'Denim Inc',
+                  createdAt: '2024-02-01T09:15:00Z'
+                }
+              }
+            ]
+          }
+        },
+        summary: "You have **3 products** in your store. Most items have good inventory levels, with **2 active products** and **1 draft** that needs attention."
       },
+
       orders: {
-        'created': 'CREATED_AT',
-        'updated': 'UPDATED_AT',
-        'total': 'TOTAL_PRICE'
+        executionResult: {
+          orders: {
+            edges: [
+              {
+                node: {
+                  id: 'gid://shopify/Order/1001',
+                  name: '#1001',
+                  displayFinancialStatus: 'PAID',
+                  fulfillmentStatus: 'FULFILLED',
+                  createdAt: '2024-12-01T14:30:00Z'
+                }
+              },
+              {
+                node: {
+                  id: 'gid://shopify/Order/1002',
+                  name: '#1002',
+                  displayFinancialStatus: 'PENDING',
+                  fulfillmentStatus: 'UNFULFILLED',
+                  createdAt: '2024-12-02T09:20:00Z'
+                }
+              }
+            ]
+          }
+        },
+        summary: "You have **2 recent orders**. **1 order** is fully processed and **1 order** is pending fulfillment."
+      },
+
+      customers: {
+        executionResult: {
+          customers: {
+            edges: [
+              {
+                node: {
+                  id: 'gid://shopify/Customer/501',
+                  displayName: 'John Smith',
+                  email: 'john@example.com',
+                  phone: '+1-555-0123',
+                  createdAt: '2024-11-15T12:00:00Z'
+                }
+              }
+            ]
+          }
+        },
+        summary: "You have **1 customer** in your database. Your customer base is growing steadily."
+      },
+
+      collections: {
+        executionResult: {
+          collections: {
+            edges: [
+              {
+                node: {
+                  id: 'gid://shopify/Collection/301',
+                  title: 'Summer Collection',
+                  handle: 'summer-collection',
+                  description: 'Hot summer styles',
+                  createdAt: '2024-05-01T08:00:00Z'
+                }
+              }
+            ]
+          }
+        },
+        summary: "You have **1 collection** organizing your products. Collections help customers find what they're looking for."
       }
     };
 
-    const operationMappings = sortMappings[operation as keyof typeof sortMappings];
-    return operationMappings?.[sortBy as keyof typeof operationMappings] || 'CREATED_AT';
+    return mockData[operation as keyof typeof mockData] || mockData.products;
+  }
+
+  identifyIntent(message: string): "query" | "mutation" | "message" {
+    const lowerMessage = message.toLowerCase();
+
+    // Query keywords - user wants to fetch/see data
+    const queryKeywords = [
+      "show", "list", "get", "find", "search", "display", "view", "see",
+      "what", "how many", "count", "total", "sum", "average",
+      "products", "orders", "customers", "collections", "inventory"
+    ];
+
+    // Mutation keywords - user wants to change data
+    const mutationKeywords = [
+      "create", "add", "make", "new", "build",
+      "update", "change", "edit", "modify", "set",
+      "delete", "remove", "cancel", "archive"
+    ];
+
+    // Check for mutation intent first (more specific)
+    if (mutationKeywords.some(keyword => lowerMessage.includes(keyword))) {
+      return "mutation";
+    }
+
+    // Check for query intent
+    if (queryKeywords.some(keyword => lowerMessage.includes(keyword))) {
+      return "query";
+    }
+
+    // Default to message for general conversation
+    return "message";
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 }
 

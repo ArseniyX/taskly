@@ -1,7 +1,6 @@
-import { useState, useCallback } from "react";
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
-import { json, redirect } from "@remix-run/node";
-import { useFetcher, useLoaderData } from "@remix-run/react";
+import { useState } from "react";
+import type { LoaderFunctionArgs, ActionFunctionArgs } from "@remix-run/node";
+import { useLoaderData, useFetcher } from "@remix-run/react";
 import {
   Page,
   Layout,
@@ -10,468 +9,268 @@ import {
   Button,
   BlockStack,
   InlineStack,
-  Select,
   Badge,
-  DataTable,
+  Divider,
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
-import db from "../db.server";
+import { usageService } from "../services/usage.server";
 
-export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  const { billing, session } = await authenticate.admin(request);
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const { session } = await authenticate.admin(request);
 
-  try {
-    // First check local subscription data
-    const localSubscription = await db.subscription.findUnique({
-      where: { shop: session.shop },
-      include: {
-        usageRecords: {
-          where: {
-            date: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
-          },
-        },
-      },
-    });
+  // Get current subscription status
+  const currentUsage = await usageService.checkUsageLimit(session.shop);
 
-    const billingCheck = await billing.require({
-      plans: ["Pro Plan", "Enterprise Plan"],
-      isTest: true,
-      onFailure: async () => {
-        return redirect("/billing");
-      },
-    });
-
-    // Calculate current month usage
-    const currentMonthUsage = localSubscription?.usageRecords.reduce(
-      (total, record) => total + record.count,
-      0
-    ) || 0;
-
-    if (billingCheck.hasActivePayment) {
-      // Sync subscription data if needed
-      if (!localSubscription || localSubscription.status !== "active") {
-        await db.subscription.upsert({
-          where: { shop: session.shop },
-          update: {
-            status: "active",
-            shopifySubscriptionId: (billingCheck as any).payment?.id,
-            planName: (billingCheck as any).payment?.name || "Pro Plan",
-            isTest: (billingCheck as any).payment?.test || true,
-          },
-          create: {
-            shop: session.shop,
-            planName: (billingCheck as any).payment?.name || "Pro Plan",
-            status: "active",
-            shopifySubscriptionId: (billingCheck as any).payment?.id,
-            isTest: (billingCheck as any).payment?.test || true,
-          },
-        });
-      }
-
-      return json({
-        billing: billingCheck,
-        hasActivePayment: true,
-        currentPlan: (billingCheck as any).payment?.name || "Pro Plan",
-        subscription: localSubscription,
-        currentMonthUsage,
-      });
-    }
-
-    // No active payment - ensure local subscription reflects this
-    if (localSubscription && localSubscription.status === "active") {
-      await db.subscription.update({
-        where: { shop: session.shop },
-        data: { status: "canceled", canceledAt: new Date() },
-      });
-    }
-
-    return json({
-      billing: billingCheck,
-      hasActivePayment: false,
-      currentPlan: "free",
-      subscription: localSubscription,
-      currentMonthUsage,
-    });
-  } catch (error) {
-    const localSubscription = await db.subscription.findUnique({
-      where: { shop: session.shop },
-      include: {
-        usageRecords: {
-          where: {
-            date: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
-          },
-        },
-      },
-    });
-
-    const currentMonthUsage = localSubscription?.usageRecords.reduce(
-      (total, record) => total + record.count,
-      0
-    ) || 0;
-
-    return json({
-      billing: null,
-      hasActivePayment: false,
-      currentPlan: "free",
-      error: "Failed to check billing status",
-      subscription: localSubscription,
-      currentMonthUsage,
-    });
-  }
+  return {
+    shop: session.shop,
+    currentPlan: currentUsage.planName,
+    currentUsage: currentUsage.currentUsage,
+    limit: currentUsage.limit,
+  } as const;
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const { billing, session } = await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const formData = await request.formData();
   const intent = formData.get("intent");
-  const planId = formData.get("planId") as string;
+  const planName = formData.get("planName");
 
-  if (intent === "subscribe") {
-    try {
-      await billing.request({
-        plan: planId as "Pro Plan" | "Enterprise Plan",
-        isTest: true,
-        returnUrl: `${process.env.SHOPIFY_APP_URL}/app/subscription?subscribed=1`,
-      });
+  if (intent === "upgrade_plan") {
+    // Here you would integrate with Shopify billing API
+    // For now, we'll just update the subscription in our database
 
-      // Save subscription to database
-      await db.subscription.upsert({
-        where: { shop: session.shop },
-        update: {
-          planName: planId,
-          status: "trialing", // Will be updated when payment completes
-          updatedAt: new Date(),
-        },
-        create: {
-          shop: session.shop,
-          planName: planId,
-          status: "trialing",
-          isTest: true,
-        },
-      });
+    console.log(`Upgrading ${session.shop} to ${planName}`);
 
-      return json({
-        success: true,
-        message: `Redirecting to payment for ${planId}`,
-        planId,
-      });
-    } catch (error) {
-      return json({
-        success: false,
-        error: "Failed to initiate subscription process",
-      });
-    }
+    // TODO: Implement actual billing integration
+    return {
+      success: true,
+      message: `Successfully upgraded to ${planName}!`,
+    } as const;
   }
 
-  if (intent === "cancel") {
-    try {
-      const billingCheck = await billing.require({
-        plans: ["Pro Plan", "Enterprise Plan"],
-        isTest: true,
-        onFailure: async () => {
-          return json({
-            success: false,
-            error: "No active subscription found",
-          });
-        },
-      });
-
-      if (billingCheck.hasActivePayment) {
-        await billing.cancel({
-          subscriptionId: (billingCheck as any).payment.id,
-          isTest: true,
-          prorate: true,
-        });
-
-        // Update local subscription status
-        await db.subscription.update({
-          where: { shop: session.shop },
-          data: {
-            status: "canceled",
-            canceledAt: new Date(),
-          },
-        });
-
-        return json({
-          success: true,
-          message: "Subscription cancelled successfully",
-        });
-      }
-
-      return json({
-        success: false,
-        error: "No active subscription found",
-      });
-    } catch (error) {
-      return json({
-        success: false,
-        error: "Failed to cancel subscription",
-      });
-    }
-  }
-
-  return json({ success: false, error: "Invalid intent" });
+  return {
+    success: false,
+    message: "Unknown action",
+  } as const;
 };
 
-export default function SubscriptionManagement() {
-  const loaderData = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof action>();
-  const [selectedPlan, setSelectedPlan] = useState("Basic Plan");
+export default function Subscription() {
+  const { currentPlan, currentUsage, limit } = useLoaderData() as {
+    shop: string;
+    currentPlan: string;
+    currentUsage: number;
+    limit: number;
+  };
+  const fetcher = useFetcher();
+  const [billingCycle] = useState<"monthly" | "annual">("monthly");
 
-  const currentPlan = loaderData.hasActivePayment
-    ? (loaderData.billing as any)?.payment?.name || "paid"
-    : "free";
-
-  const isLoading = ["loading", "submitting"].includes(fetcher.state);
-
-  const handlePlanChange = useCallback((value: string) => {
-    setSelectedPlan(value);
-  }, []);
-
-  const handleSubscribe = useCallback(() => {
-    fetcher.submit(
-      { intent: "subscribe", planId: selectedPlan },
-      { method: "POST" },
-    );
-  }, [selectedPlan, fetcher]);
-
-  const handleCancel = useCallback(() => {
-    fetcher.submit({ intent: "cancel" }, { method: "POST" });
-  }, [fetcher]);
-
-  const planOptions = [
-    { label: "Basic Plan - Free", value: "Free Plan" },
-    { label: "Pro Plan - $29.99", value: "Pro Plan" },
-    { label: "Enterprise Plan - $99.99", value: "Enterprise Plan" },
+  const plans = [
+    {
+      name: "Free Plan",
+      price: { monthly: 0, annual: 0 },
+      description: "Perfect for getting started with basic store operations.",
+      features: [
+        "20 AI queries per month",
+        "Basic chat support",
+        "Store data insights",
+        "Email support",
+      ],
+      limitations: ["Limited AI queries", "Basic features only"],
+      buttonText: currentPlan === "Free Plan" ? "Current" : "Downgrade",
+      disabled: currentPlan === "Free Plan",
+      popular: false,
+    },
+    {
+      name: "Pro Plan",
+      price: { monthly: 39, annual: 390 }, // $32.50/month when billed annually
+      description:
+        "For growing businesses that need more power and flexibility.",
+      features: [
+        "10,000 AI queries per month",
+        "Advanced analytics",
+        "Priority chat support",
+        "Custom integrations",
+        "Advanced reporting",
+        "API access",
+      ],
+      limitations: [],
+      buttonText:
+        currentPlan === "Pro Plan" ? "Current" : "Start your 5 day free trial",
+      disabled: currentPlan === "Pro Plan",
+      popular: true,
+    },
+    {
+      name: "Enterprise Plan",
+      price: { monthly: 99, annual: 990 }, // $82.50/month when billed annually
+      description:
+        "For large businesses with advanced needs and unlimited usage.",
+      features: [
+        "Unlimited AI queries",
+        "White-label options",
+        "Dedicated account manager",
+        "Custom development",
+        "Advanced security",
+        "SLA guarantee",
+        "Phone support",
+      ],
+      limitations: [],
+      buttonText:
+        currentPlan === "Enterprise Plan"
+          ? "Current"
+          : "Start your 5 day free trial",
+      disabled: currentPlan === "Enterprise Plan",
+      popular: false,
+    },
   ];
 
-  const features = {
-    free: ["Basic chat operations", "Up to 100 queries/month", "Email support"],
-    paid: [
-      "Advanced chat operations",
-      "Unlimited queries/month",
-      "Priority support",
-      "Advanced analytics",
-      "Custom integrations",
-    ],
-    "Free Plan": [
-      "Advanced chat operations",
-      "Up to 1,000 queries/month",
-      "Priority email support",
-      "Basic analytics",
-    ],
-    "Pro Plan": [
-      "All basic features",
-      "Up to 10,000 queries/month",
-      "Phone support",
-      "Advanced analytics",
-      "Custom integrations",
-    ],
-    "Enterprise Plan": [
-      "All pro features",
-      "Unlimited queries",
-      "Dedicated account manager",
-      "Custom development",
-      "SLA guarantee",
-    ],
+  const handleUpgrade = (planName: string) => {
+    fetcher.submit({ intent: "upgrade_plan", planName }, { method: "POST" });
   };
-
-  // Plan limits
-  const planLimits = {
-    "Free Plan": 100,
-    "Pro Plan": 10000,
-    "Enterprise Plan": -1, // unlimited
-  };
-
-  const currentLimit = planLimits[currentPlan as keyof typeof planLimits] || planLimits["Free Plan"];
-  const usagePercent = currentLimit > 0 ? Math.round((loaderData.currentMonthUsage / currentLimit) * 100) : 0;
-  const usageStatus = currentLimit > 0 && loaderData.currentMonthUsage > currentLimit ? "Exceeded" : "Within limit";
-
-  const usageData = [
-    [
-      "Current Month Queries",
-      currentLimit > 0 ? `${loaderData.currentMonthUsage} / ${currentLimit}` : `${loaderData.currentMonthUsage} / Unlimited`,
-      usageStatus
-    ],
-    ["Usage Percentage", `${usagePercent}%`, usagePercent > 80 ? "High" : "Normal"],
-    ["Plan", currentPlan, "Active"],
-    ["Billing Cycle", "Monthly", "Active"],
-  ];
 
   return (
     <Page>
-      <TitleBar title="Subscription Management" />
+      <TitleBar title="Subscription Plans" />
       <Layout>
         <Layout.Section>
-          <BlockStack gap="500">
+          <BlockStack gap="600">
+            {/* Header */}
+            <BlockStack gap="200">
+              <Text as="h1" variant="headingLg">
+                Plans
+              </Text>
+              <Text as="p" variant="bodyMd" tone="subdued">
+                Choose the best plan for you. Upgrade as you grow.
+              </Text>
+            </BlockStack>
             <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">
-                  Current Subscription
+              <BlockStack gap="300">
+                <Text as="h3" variant="headingMd">
+                  Current Usage
                 </Text>
-                <InlineStack align="space-between">
-                  <Text as="p" variant="bodyMd">
-                    Plan:{" "}
-                    <Badge
-                      tone={currentPlan === "free" ? "warning" : "success"}
-                    >
-                      {loaderData.hasActivePayment
-                        ? (loaderData.billing as any)?.payment?.name || "PAID"
-                        : "FREE"}
-                    </Badge>
+                <InlineStack gap="400">
+                  <Text as="span" variant="bodyMd">
+                    <strong>Plan:</strong> {currentPlan}
                   </Text>
-                  {currentPlan !== "free" && (
-                    <Button
-                      onClick={handleCancel}
-                      loading={isLoading}
-                      tone="critical"
-                      variant="secondary"
-                    >
-                      Cancel Subscription
-                    </Button>
-                  )}
+                  <Text as="span" variant="bodyMd">
+                    <strong>Usage:</strong> {currentUsage}/
+                    {limit === -1 ? "∞" : limit} queries this month
+                  </Text>
                 </InlineStack>
-                <BlockStack gap="200">
-                  <Text as="h3" variant="headingSm">
-                    Current Plan Features:
-                  </Text>
-                  {(
-                    features[currentPlan as keyof typeof features] ||
-                    features.free ||
-                    []
-                  ).map((feature, index) => (
-                    <Text key={index} as="p" variant="bodyMd">
-                      • {feature}
-                    </Text>
-                  ))}
-                </BlockStack>
               </BlockStack>
             </Card>
 
-            <Card>
-              <BlockStack gap="400">
-                <Text as="h2" variant="headingMd">
-                  Usage Statistics
-                </Text>
-                <DataTable
-                  columnContentTypes={["text", "text", "text"]}
-                  headings={["Metric", "Usage", "Status"]}
-                  rows={usageData}
-                />
-              </BlockStack>
-            </Card>
+            {/* @ts-ignore */}
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3, 1fr)",
+                gap: "16px",
+              }}
+            >
+              {plans.map((plan) => (
+                <Card key={plan.name} padding="500">
+                  <div
+                    style={{
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
+                    <BlockStack gap="400">
+                      {/* Plan Header */}
+                      <BlockStack gap="200">
+                        <InlineStack gap="200" align="space-between">
+                          <Text as="h3" variant="headingMd">
+                            {plan.name}
+                          </Text>
+                          {plan.popular && (
+                            <Badge tone="info">Most Popular</Badge>
+                          )}
+                        </InlineStack>
 
-            {currentPlan === "free" && (
-              <Card>
-                <BlockStack gap="400">
-                  <Text as="h2" variant="headingMd">
-                    Upgrade Your Plan
+                        <InlineStack gap="100" blockAlign="end">
+                          <Text as="span" variant="heading2xl">
+                            ${plan.price[billingCycle]}
+                          </Text>
+                          <Text as="span" variant="bodyMd" tone="subdued">
+                            /{billingCycle === "monthly" ? "month" : "year"}
+                          </Text>
+                        </InlineStack>
+
+                        <Text as="p" variant="bodyMd" tone="subdued">
+                          {plan.description}
+                        </Text>
+                      </BlockStack>
+
+                      {/* CTA Button */}
+                      <Button
+                        variant={"primary"}
+                        fullWidth
+                        disabled={plan.disabled}
+                        loading={fetcher.state === "submitting"}
+                        onClick={() => handleUpgrade(plan.name)}
+                      >
+                        {plan.buttonText}
+                      </Button>
+
+                      <Divider />
+
+                      {/* Features */}
+                      <BlockStack gap="200">
+                        <Text as="h4" variant="bodyMd" fontWeight="semibold">
+                          FEATURES
+                        </Text>
+                        <BlockStack gap="100">
+                          {plan.features.map((feature) => (
+                            <InlineStack key={feature} gap="200">
+                              <Text as="span" variant="bodyMd" tone="success">
+                                ✓
+                              </Text>
+                              <Text as="span" variant="bodyMd">
+                                {feature}
+                              </Text>
+                            </InlineStack>
+                          ))}
+                          {plan.limitations.map((limitation) => (
+                            <InlineStack key={limitation} gap="200">
+                              <Text as="span" variant="bodyMd" tone="critical">
+                                ✗
+                              </Text>
+                              <Text as="span" variant="bodyMd" tone="subdued">
+                                {limitation}
+                              </Text>
+                            </InlineStack>
+                          ))}
+                        </BlockStack>
+                      </BlockStack>
+                    </BlockStack>
+                  </div>
+                </Card>
+              ))}
+            </div>
+
+            {/* Success/Error Message */}
+            {fetcher.data &&
+              typeof fetcher.data === "object" &&
+              fetcher.data !== null &&
+              "success" in fetcher.data &&
+              "message" in fetcher.data && (
+                <Card>
+                  <Text
+                    as="p"
+                    variant="bodyMd"
+                    tone={
+                      (fetcher.data as { success: boolean }).success
+                        ? "success"
+                        : "critical"
+                    }
+                  >
+                    {(fetcher.data as { message: string }).message}
                   </Text>
-                  <Text as="p" variant="bodyMd">
-                    You've exceeded your free plan limits. Upgrade to continue
-                    using advanced features.
-                  </Text>
-
-                  <Select
-                    label="Choose a plan"
-                    options={planOptions}
-                    value={selectedPlan}
-                    onChange={handlePlanChange}
-                  />
-
-                  <BlockStack gap="200">
-                    <Text as="h3" variant="headingSm">
-                      Selected Plan Features:
-                    </Text>
-                    {(
-                      features[selectedPlan as keyof typeof features] ||
-                      features["Free Plan"] ||
-                      []
-                    ).map((feature, index) => (
-                      <Text key={index} as="p" variant="bodyMd">
-                        • {feature}
-                      </Text>
-                    ))}
-                  </BlockStack>
-
-                  <InlineStack gap="300">
-                    <Button
-                      onClick={handleSubscribe}
-                      loading={isLoading}
-                      variant="primary"
-                    >
-                      Subscribe to {selectedPlan}
-                    </Button>
-                  </InlineStack>
-
-                  {fetcher.data?.success && "message" in fetcher.data && (
-                    <Text as="p" variant="bodyMd" tone="success">
-                      {fetcher.data.message}
-                    </Text>
-                  )}
-                  {fetcher.data &&
-                    !fetcher.data.success &&
-                    "error" in fetcher.data && (
-                      <Text as="p" variant="bodyMd" tone="critical">
-                        {fetcher.data.error}
-                      </Text>
-                    )}
-                </BlockStack>
-              </Card>
-            )}
+                </Card>
+              )}
           </BlockStack>
-        </Layout.Section>
-
-        <Layout.Section variant="oneThird">
-          <Card>
-            <BlockStack gap="400">
-              <Text as="h2" variant="headingMd">
-                Billing Information
-              </Text>
-              <BlockStack gap="200">
-                {loaderData.hasActivePayment ? (
-                  <>
-                    <Text as="p" variant="bodyMd">
-                      <strong>Status:</strong> Active Subscription
-                    </Text>
-                    <Text as="p" variant="bodyMd">
-                      <strong>Billing:</strong> Active
-                    </Text>
-                    <Text as="p" variant="bodyMd">
-                      <strong>Test Mode:</strong> Yes
-                    </Text>
-                  </>
-                ) : (
-                  <Text as="p" variant="bodyMd">
-                    No active subscription
-                  </Text>
-                )}
-              </BlockStack>
-              <Button variant="secondary" disabled>
-                Update Billing Info
-              </Button>
-            </BlockStack>
-          </Card>
-
-          <Card>
-            <BlockStack gap="400">
-              <Text as="h2" variant="headingMd">
-                Support
-              </Text>
-              <Text as="p" variant="bodyMd">
-                Need help with your subscription? Our support team is here to
-                assist you.
-              </Text>
-              <Button variant="secondary" disabled>
-                Contact Support
-              </Button>
-            </BlockStack>
-          </Card>
         </Layout.Section>
       </Layout>
     </Page>

@@ -24,8 +24,8 @@ export default function App() {
         <Link to="/app" rel="home">
           Chat Operations
         </Link>
-        <Link to="/app/subscription">Subscription Management</Link>
-        <Link to="/app/settings">App Settings</Link>
+        <Link to="/app/subscription">Subscription</Link>
+        <Link to="/app/settings">Settings</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>

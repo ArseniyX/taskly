@@ -66,27 +66,29 @@ export class UsageService {
     limit: number;
     planName: string;
   }> {
-    const subscription = await prisma.subscription.findUnique({
+    let subscription = await prisma.subscription.findUnique({
       where: { shop },
     });
 
     if (!subscription) {
-      return {
-        isWithinLimit: false,
-        currentUsage: 0,
-        limit: 0,
-        planName: "No Plan",
-      };
+      // Create a free plan subscription if none exists
+      subscription = await prisma.subscription.create({
+        data: {
+          shop: shop,
+          planName: "Free Plan",
+          status: "active",
+        },
+      });
     }
 
     // Define plan limits
     const planLimits = {
-      "Free Plan": 100,
+      "Free Plan": 20,
       "Pro Plan": 10000,
       "Enterprise Plan": -1, // unlimited
     };
 
-    const limit = planLimits[subscription.planName as keyof typeof planLimits] || 100;
+    const limit = planLimits[subscription.planName as keyof typeof planLimits] || 20;
     const currentUsage = await this.getUsageForCurrentMonth(shop, usageType);
 
     return {
