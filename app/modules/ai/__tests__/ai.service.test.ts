@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { AIService } from "../ai.service";
 import type { IAIDal } from "../ai.dal";
-import { TestAIExternal } from "../ai.external.mock";
+import { TestAIExternal } from "./ai.external.mock";
 import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 
 const mockAIDal: IAIDal = {

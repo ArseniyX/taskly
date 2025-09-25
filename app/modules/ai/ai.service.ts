@@ -1,9 +1,4 @@
-import type {
-  QueryResult,
-  IntentType,
-  ShopifyOperation,
-  MockDataResult,
-} from "./ai.types";
+import type { QueryResult, IntentType, ShopifyOperation } from "./ai.types";
 import type { IAIDal } from "./ai.dal";
 import type { IAIExternal } from "./ai.external";
 import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
@@ -11,7 +6,7 @@ import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 export class AIService {
   constructor(
     private dal: IAIDal,
-    private aiExternal: IAIExternal
+    private aiExternal: IAIExternal,
   ) {}
 
   async processMessage(
@@ -107,7 +102,7 @@ export class AIService {
       // 3. Generate GraphQL query using AI (it will determine the operation type)
       const { query } = await this.aiExternal.buildQuery(
         message,
-        relevantQueries
+        relevantQueries,
       );
 
       // 4. Execute query
@@ -116,13 +111,14 @@ export class AIService {
 
       try {
         executionResult = await this.dal.executeGraphQLQuery(admin, query);
-        const operation = this.determineOperationFromResult(executionResult);
-        summary = await this.aiExternal.generateSummary(executionResult, operation, message);
+        summary = await this.aiExternal.generateSummary(
+          executionResult,
+          message,
+        );
       } catch (error) {
-        // Use mock data if actual query fails - default to products for fallback
-        const mockData = this.getMockData("products");
-        executionResult = mockData.executionResult;
-        summary = mockData.summary;
+        // If query execution fails, use AI to generate a helpful error response
+        executionResult = null;
+        summary = await this.aiExternal.generateSummary(null, message);
       }
 
       return {
@@ -133,7 +129,7 @@ export class AIService {
         intent: "query",
       };
     } catch (error) {
-      return this.handleError(message, error);
+      return await this.handleError(message, error);
     }
   }
 
@@ -146,20 +142,20 @@ export class AIService {
       const schemaInfo = await this.dal.getSchemaInfo(admin);
 
       // 2. Identify relevant mutations using AI
-      const relevantMutations = await this.aiExternal.determineRelevantMutations(
-        message,
-        schemaInfo.mutations,
-      );
+      const relevantMutations =
+        await this.aiExternal.determineRelevantMutations(
+          message,
+          schemaInfo.mutations,
+        );
 
       return {
         query: "",
-        explanation:
-          `Mutation operations are not yet implemented for safety reasons. Found ${relevantMutations.length} relevant mutations. This feature is coming soon!`,
+        explanation: `Mutation operations are not yet implemented for safety reasons. Found ${relevantMutations.length} relevant mutations. This feature is coming soon!`,
         summary: `I understand you want to make changes to your store data. For now, I can only read and analyze your store information. Mutation operations will be available in a future update.`,
         intent: "mutation",
       };
     } catch (error) {
-      return this.handleError(message, error);
+      return await this.handleError(message, error);
     }
   }
 
@@ -182,145 +178,12 @@ export class AIService {
     };
   }
 
-  private determineOperationFromResult(result: any): ShopifyOperation {
-    if (!result || typeof result !== 'object') {
-      return "products"; // default fallback
-    }
-
-    // Check for different operation types in the result structure
-    const keys = Object.keys(result);
-
-    if (keys.includes('products')) return "products";
-    if (keys.includes('orders')) return "orders";
-    if (keys.includes('customers')) return "customers";
-    if (keys.includes('collections')) return "collections";
-
-    // Default to products if no specific operation detected
-    return "products";
-  }
-
-  private getMockData(operation: ShopifyOperation): MockDataResult {
-    const mockData = {
-      products: {
-        executionResult: {
-          products: {
-            edges: [
-              {
-                node: {
-                  id: "gid://shopify/Product/1",
-                  title: "Awesome T-Shirt",
-                  status: "ACTIVE",
-                  totalInventory: 50,
-                  vendor: "Cool Brand",
-                  createdAt: "2024-01-15T10:00:00Z",
-                },
-              },
-              {
-                node: {
-                  id: "gid://shopify/Product/2",
-                  title: "Super Sneakers",
-                  status: "ACTIVE",
-                  totalInventory: 25,
-                  vendor: "Shoe Co",
-                  createdAt: "2024-01-20T15:30:00Z",
-                },
-              },
-              {
-                node: {
-                  id: "gid://shopify/Product/3",
-                  title: "Classic Jeans",
-                  status: "DRAFT",
-                  totalInventory: 0,
-                  vendor: "Denim Inc",
-                  createdAt: "2024-02-01T09:15:00Z",
-                },
-              },
-            ],
-          },
-        },
-        summary:
-          "You have **3 products** in your store. **2 are active** and **1 is a draft**. Most items have good inventory levels.",
-      },
-
-      orders: {
-        executionResult: {
-          orders: {
-            edges: [
-              {
-                node: {
-                  id: "gid://shopify/Order/1001",
-                  name: "#1001",
-                  displayFinancialStatus: "PAID",
-                  fulfillmentStatus: "FULFILLED",
-                  createdAt: "2024-12-01T14:30:00Z",
-                },
-              },
-              {
-                node: {
-                  id: "gid://shopify/Order/1002",
-                  name: "#1002",
-                  displayFinancialStatus: "PENDING",
-                  fulfillmentStatus: "UNFULFILLED",
-                  createdAt: "2024-12-02T09:20:00Z",
-                },
-              },
-            ],
-          },
-        },
-        summary:
-          "You have **2 recent orders**. **1 order is paid and fulfilled** and **1 order needs attention**.",
-      },
-
-      customers: {
-        executionResult: {
-          customers: {
-            edges: [
-              {
-                node: {
-                  id: "gid://shopify/Customer/501",
-                  displayName: "John Smith",
-                  email: "john@example.com",
-                  phone: "+1-555-0123",
-                  createdAt: "2024-11-15T12:00:00Z",
-                },
-              },
-            ],
-          },
-        },
-        summary:
-          "You have **1 customer** in your database. Your customer base is growing steadily.",
-      },
-
-      collections: {
-        executionResult: {
-          collections: {
-            edges: [
-              {
-                node: {
-                  id: "gid://shopify/Collection/301",
-                  title: "Summer Collection",
-                  handle: "summer-collection",
-                  description: "Hot summer styles",
-                  createdAt: "2024-05-01T08:00:00Z",
-                },
-              },
-            ],
-          },
-        },
-        summary:
-          "You have **1 collection** organizing your products. Collections help customers find what they're looking for.",
-      },
-    };
-
-    return mockData[operation] || mockData.products;
-  }
-
-  private handleError(message: string, error: any): QueryResult {
+  private async handleError(message: string, error: any): Promise<QueryResult> {
+    const summary = await this.aiExternal.generateSummary(null, message);
     return {
       query: "",
       explanation: "An error occurred while processing your request.",
-      summary:
-        "I'm having trouble processing your request. Please try again with a different query.",
+      summary,
       intent: "message",
     };
   }

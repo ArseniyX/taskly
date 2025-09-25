@@ -1,3 +1,4 @@
+// @ts-nocheck
 /** @type {import('@types/eslint').Linter.BaseConfig} */
 module.exports = {
   root: true,
@@ -7,7 +8,10 @@ module.exports = {
     "prettier",
   ],
   globals: {
-    shopify: "readonly"
+    shopify: "readonly",
+  },
+  rules: {
+    "no-useless-constructor": "off",
   },
   overrides: [
     {

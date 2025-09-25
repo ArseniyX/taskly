@@ -21,29 +21,25 @@ const initializeAI = async () => {
 export interface IAIExternal {
   buildQuery(
     message: string,
-    relevantQueries: { name: string; description: string }[]
+    relevantQueries: { name: string; description: string }[],
   ): Promise<{ query: string; variables?: Record<string, any> }>;
 
   buildMutation(
     message: string,
-    relevantMutations: { name: string; description: string }[]
+    relevantMutations: { name: string; description: string }[],
   ): Promise<{ query: string; variables?: Record<string, any> }>;
 
   determineRelevantQueries(
     message: string,
-    queries: { name: string; description: string }[]
+    queries: { name: string; description: string }[],
   ): Promise<{ name: string; description: string }[]>;
 
   determineRelevantMutations(
     message: string,
-    mutations: { name: string; description: string }[]
+    mutations: { name: string; description: string }[],
   ): Promise<{ name: string; description: string }[]>;
 
-  generateSummary(
-    data: any,
-    operation: ShopifyOperation,
-    originalMessage: string
-  ): Promise<string>;
+  generateSummary(data: any, originalMessage: string): Promise<string>;
 }
 
 export class AIExternal implements IAIExternal {
@@ -60,7 +56,7 @@ export class AIExternal implements IAIExternal {
 
   async buildQuery(
     message: string,
-    relevantQueries: { name: string; description: string }[]
+    relevantQueries: { name: string; description: string }[],
   ): Promise<{ query: string; variables?: Record<string, any> }> {
     try {
       if (!generateText || !this.model) {
@@ -91,47 +87,16 @@ Respond with valid GraphQL only, no explanations.
         variables: { first: 10 },
       };
     } catch (error) {
-      // Fallback to simple query structure - determine operation from relevant queries
-      const operation = this.determineOperationFromQueries(relevantQueries, message);
       return {
-        query: `#graphql
-          query Get${operation.charAt(0).toUpperCase() + operation.slice(1)} {
-            ${operation}(first: 10) {
-              edges {
-                node {
-                  id
-                  ... on Product {
-                    title
-                    status
-                    totalInventory
-                  }
-                  ... on Order {
-                    name
-                    displayFinancialStatus
-                    fulfillmentStatus
-                  }
-                  ... on Customer {
-                    displayName
-                    email
-                  }
-                  ... on Collection {
-                    title
-                    handle
-                  }
-                  createdAt
-                }
-              }
-            }
-          }
-        `,
-        variables: { first: 10 },
+        query: "",
+        variables: {},
       };
     }
   }
 
   async buildMutation(
     message: string,
-    relevantMutations: { name: string; description: string }[]
+    relevantMutations: { name: string; description: string }[],
   ): Promise<{ query: string; variables?: Record<string, any> }> {
     try {
       if (!generateText || !this.model) {
@@ -172,7 +137,7 @@ Respond with valid GraphQL only, no explanations.
 
   async determineRelevantQueries(
     message: string,
-    queries: { name: string; description: string }[]
+    queries: { name: string; description: string }[],
   ): Promise<{ name: string; description: string }[]> {
     try {
       if (!generateText || !this.model) {
@@ -200,13 +165,13 @@ Respond with JSON only: [{"name": "queryName", "description": "description"}, ..
       return Array.isArray(parsed) ? parsed.slice(0, 3) : [];
     } catch (error) {
       // Fallback to keyword matching
-      return this.keywordBasedQueryMatching(message, queries);
+      return [];
     }
   }
 
   async determineRelevantMutations(
     message: string,
-    mutations: { name: string; description: string }[]
+    mutations: { name: string; description: string }[],
   ): Promise<{ name: string; description: string }[]> {
     try {
       if (!generateText || !this.model) {
@@ -234,15 +199,11 @@ Respond with JSON only: [{"name": "mutationName", "description": "description"},
       return Array.isArray(parsed) ? parsed.slice(0, 3) : [];
     } catch (error) {
       // Fallback to keyword matching
-      return this.keywordBasedMutationMatching(message, mutations);
+      return [];
     }
   }
 
-  async generateSummary(
-    data: any,
-    operation: ShopifyOperation,
-    originalMessage: string
-  ): Promise<string> {
+  async generateSummary(data: any, originalMessage: string): Promise<string> {
     try {
       if (!generateText || !this.model) {
         throw new Error("AI SDK not available");
@@ -253,7 +214,6 @@ Respond with JSON only: [{"name": "mutationName", "description": "description"},
         prompt: `
 Generate a friendly, informative summary of this Shopify data for a store owner.
 
-Operation: ${operation}
 User's original request: "${originalMessage}"
 Data: ${JSON.stringify(data, null, 2)}
 
@@ -271,85 +231,7 @@ Keep it concise (1-3 sentences) but informative.
       return text.trim();
     } catch (error) {
       // Fallback to basic summary generation
-      return this.generateBasicSummary(data, operation, originalMessage);
-    }
-  }
-
-  private keywordBasedQueryMatching(
-    message: string,
-    queries: { name: string; description: string }[]
-  ): { name: string; description: string }[] {
-    const lowerMessage = message.toLowerCase();
-
-    return queries
-      .filter((query) => {
-        const queryName = query.name.toLowerCase();
-        const description = (query.description || "").toLowerCase();
-
-        return (
-          lowerMessage.includes(queryName) ||
-          description.split(" ").some((word) => lowerMessage.includes(word))
-        );
-      })
-      .slice(0, 3);
-  }
-
-  private keywordBasedMutationMatching(
-    message: string,
-    mutations: { name: string; description: string }[]
-  ): { name: string; description: string }[] {
-    const lowerMessage = message.toLowerCase();
-
-    return mutations
-      .filter((mutation) => {
-        const mutationName = mutation.name.toLowerCase();
-        const description = (mutation.description || "").toLowerCase();
-
-        return (
-          lowerMessage.includes(mutationName) ||
-          description.split(" ").some((word) => lowerMessage.includes(word))
-        );
-      })
-      .slice(0, 3);
-  }
-
-  private generateBasicSummary(
-    data: any,
-    operation: ShopifyOperation,
-    originalMessage: string
-  ): string {
-    if (!data) return "No data available.";
-
-    const key = Object.keys(data)[0];
-    const items = data[key]?.edges || [];
-    const count = items.length;
-
-    switch (operation) {
-      case "products":
-        if (count === 0) return "No products found matching your criteria.";
-        const activeProducts = items.filter(
-          (item: any) => item.node.status === "ACTIVE"
-        ).length;
-        const draftProducts = count - activeProducts;
-        return `You have **${count} products** in your store. **${activeProducts} are active** and **${draftProducts} are drafts**.`;
-
-      case "orders":
-        if (count === 0) return "No orders found.";
-        const paidOrders = items.filter(
-          (item: any) => item.node.displayFinancialStatus === "PAID"
-        ).length;
-        return `You have **${count} orders**. **${paidOrders} orders are paid** and **${count - paidOrders} need attention**.`;
-
-      case "customers":
-        if (count === 0) return "No customers found.";
-        return `You have **${count} customers** in your database. Your customer base is growing steadily.`;
-
-      case "collections":
-        if (count === 0) return "No collections found.";
-        return `You have **${count} collections** organizing your products.`;
-
-      default:
-        return `Found **${count} items** matching your request.`;
+      return "No data available.";
     }
   }
 }
