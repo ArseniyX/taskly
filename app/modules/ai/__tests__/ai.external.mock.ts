@@ -5,7 +5,7 @@ export class TestAIExternal implements IAIExternal {
   async buildQuery(
     message: string,
     relevantQueries: { name: string; description: string }[],
-  ): Promise<{ query: string; variables?: Record<string, any> }> {
+  ): Promise<{ query: string }> {
     // Determine operation from message for test
     const lowerMessage = message.toLowerCase();
     let operation = "products";
@@ -15,7 +15,6 @@ export class TestAIExternal implements IAIExternal {
 
     return {
       query: `#graphql\nquery Get${operation.charAt(0).toUpperCase() + operation.slice(1)} { ${operation}(first: 10) { edges { node { id } } } }`,
-      variables: { first: 10 },
     };
   }
 
@@ -23,8 +22,24 @@ export class TestAIExternal implements IAIExternal {
     message: string,
     relevantMutations: { name: string; description: string }[],
   ): Promise<{ query: string; variables?: Record<string, any> }> {
+    // Generate a simple mutation based on message for testing
+    const lowerMessage = message.toLowerCase();
+    let mutationName = "productCreate";
+    let operation = "product";
+
+    if (lowerMessage.includes("update")) mutationName = "productUpdate";
+    if (lowerMessage.includes("delete")) mutationName = "productDelete";
+    if (lowerMessage.includes("customer")) {
+      mutationName = lowerMessage.includes("create")
+        ? "customerCreate"
+        : lowerMessage.includes("update")
+          ? "customerUpdate"
+          : "customerDelete";
+      operation = "customer";
+    }
+
     return {
-      query: `#graphql\n# Mutation not implemented for safety`,
+      query: `#graphql\nmutation ${mutationName.charAt(0).toUpperCase() + mutationName.slice(1)} { ${mutationName}(input: {}) { ${operation} { id } userErrors { field message } } }`,
       variables: {},
     };
   }
@@ -32,7 +47,7 @@ export class TestAIExternal implements IAIExternal {
   async determineRelevantQueries(
     message: string,
     queries: { name: string; description: string }[],
-  ): Promise<{ name: string; description: string }[]> {
+  ): Promise<string[]> {
     const lowerMessage = message.toLowerCase();
     return queries
       .filter((query) => {
@@ -43,13 +58,14 @@ export class TestAIExternal implements IAIExternal {
           description.split(" ").some((word) => lowerMessage.includes(word))
         );
       })
-      .slice(0, 3);
+      .slice(0, 3)
+      .map((q) => q.name);
   }
 
   async determineRelevantMutations(
     message: string,
     mutations: { name: string; description: string }[],
-  ): Promise<{ name: string; description: string }[]> {
+  ): Promise<string[]> {
     const lowerMessage = message.toLowerCase();
     return mutations
       .filter((mutation) => {
@@ -60,7 +76,8 @@ export class TestAIExternal implements IAIExternal {
           description.split(" ").some((word) => lowerMessage.includes(word))
         );
       })
-      .slice(0, 3);
+      .slice(0, 3)
+      .map((m) => m.name);
   }
 
   async generateSummary(data: any, originalMessage: string): Promise<string> {

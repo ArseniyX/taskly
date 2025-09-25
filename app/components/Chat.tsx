@@ -41,7 +41,8 @@ export function Chat({ userId }: ChatProps) {
   // Auto-scroll to bottom when messages change or on initial load
   const scrollToBottom = useCallback(() => {
     if (chatContainerRef.current) {
-      chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
+      chatContainerRef.current.scrollTop =
+        chatContainerRef.current.scrollHeight;
     }
   }, []);
 
@@ -79,7 +80,10 @@ export function Chat({ userId }: ChatProps) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const data = await response.json() as { messages?: ChatMessage[], error?: string };
+      const data = (await response.json()) as {
+        messages?: ChatMessage[];
+        error?: string;
+      };
 
       if (data.error) {
         throw new Error(data.error);
@@ -87,14 +91,17 @@ export function Chat({ userId }: ChatProps) {
 
       if (data.messages) {
         // Sort messages by timestamp to ensure proper order
-        const sortedMessages = data.messages.sort((a: ChatMessage, b: ChatMessage) =>
-          new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+        const sortedMessages = data.messages.sort(
+          (a: ChatMessage, b: ChatMessage) =>
+            new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
         );
         setMessages(sortedMessages);
       }
     } catch (error) {
       console.error("Failed to load messages:", error);
-      setError(error instanceof Error ? error.message : "Failed to load chat history");
+      setError(
+        error instanceof Error ? error.message : "Failed to load chat history",
+      );
     } finally {
       setIsLoadingMessages(false);
     }
@@ -104,13 +111,10 @@ export function Chat({ userId }: ChatProps) {
     loadMessages();
   }, [loadMessages]);
 
-  const handleMessageChange = useCallback(
-    (value: string) => {
-      setNewMessage(value);
-      setError(null); // Clear any previous errors
-    },
-    [],
-  );
+  const handleMessageChange = useCallback((value: string) => {
+    setNewMessage(value);
+    setError(null); // Clear any previous errors
+  }, []);
 
   const sendMessage = useCallback(async () => {
     if (!newMessage.trim() || isLoading) return;
@@ -158,21 +162,22 @@ export function Chat({ userId }: ChatProps) {
         message: data.response,
         role: "assistant",
         timestamp: new Date().toISOString(),
-        metadata: { intent: data.intent }
+        metadata: { intent: data.intent },
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-
     } catch (error) {
       console.error("Failed to send message:", error);
 
-      const errorMessage = error instanceof Error ? error.message : "Unknown error occurred";
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error occurred";
       setError(errorMessage);
 
       // Add error message to chat
       const assistantMessage: ChatMessage = {
         id: `error-${Date.now()}`,
-        message: "I'm having trouble processing your request. Please try again or contact support if the issue persists.",
+        message:
+          "I'm having trouble processing your request. Please try again or contact support if the issue persists.",
         role: "assistant",
         timestamp: new Date().toISOString(),
       };
@@ -205,7 +210,7 @@ export function Chat({ userId }: ChatProps) {
 
   const formatMessage = (message: string) => {
     // Simple markdown-like formatting for bold text
-    return message.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    return message.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
   };
 
   if (isLoadingMessages) {
@@ -237,7 +242,7 @@ export function Chat({ userId }: ChatProps) {
         <div
           ref={chatContainerRef}
           style={{
-            height: "500px",
+            height: "400px",
             overflowY: "auto",
             border: "1px solid #e1e3e5",
             borderRadius: "8px",
@@ -261,7 +266,8 @@ export function Chat({ userId }: ChatProps) {
                   key={message.id}
                   style={{
                     display: "flex",
-                    flexDirection: message.role === "user" ? "row-reverse" : "row",
+                    flexDirection:
+                      message.role === "user" ? "row-reverse" : "row",
                     gap: "8px",
                   }}
                 >
@@ -269,20 +275,21 @@ export function Chat({ userId }: ChatProps) {
                     style={{
                       padding: "12px 16px",
                       borderRadius: "12px",
-                      backgroundColor: message.role === "user" ? "#2c5aa0" : "#ffffff",
+                      backgroundColor:
+                        message.role === "user" ? "#2c5aa0" : "#ffffff",
                       color: message.role === "user" ? "white" : "#202223",
                       maxWidth: "75%",
                       boxShadow: "0 1px 3px rgba(0,0,0,0.1)",
-                      border: message.role === "assistant" ? "1px solid #e1e3e5" : "none",
+                      border:
+                        message.role === "assistant"
+                          ? "1px solid #e1e3e5"
+                          : "none",
                     }}
                   >
-                    <Text
-                      variant="bodyMd"
-                      as="p"
-                    >
+                    <Text variant="bodyMd" as="p">
                       <div
                         dangerouslySetInnerHTML={{
-                          __html: formatMessage(message.message)
+                          __html: formatMessage(message.message),
                         }}
                       />
                     </Text>
@@ -308,7 +315,7 @@ export function Chat({ userId }: ChatProps) {
                       border: "1px solid #e1e3e5",
                       display: "flex",
                       alignItems: "center",
-                      gap: "8px"
+                      gap: "8px",
                     }}
                   >
                     <Spinner size="small" />

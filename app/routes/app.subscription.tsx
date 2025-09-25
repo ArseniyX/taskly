@@ -36,22 +36,32 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const intent = formData.get("intent");
   const planName = formData.get("planName");
 
-  if (intent === "upgrade_plan") {
-    // Here you would integrate with Shopify billing API
-    // For now, we'll just update the subscription in our database
+  if (intent === "upgrade_plan" && planName) {
+    try {
+      console.log(`Upgrading ${session.shop} to ${planName}`);
 
-    console.log(`Upgrading ${session.shop} to ${planName}`);
+      // Update subscription in database
+      await usageService.updateSubscription(session.shop, planName as any);
 
-    // TODO: Implement actual billing integration
-    return {
-      success: true,
-      message: `Successfully upgraded to ${planName}!`,
-    } as const;
+      // TODO: In production, integrate with Shopify billing API here
+      // For now, we'll simulate a successful upgrade for testing
+
+      return {
+        success: true,
+        message: `Successfully upgraded to ${planName}! Your new plan is now active.`,
+      } as const;
+    } catch (error) {
+      console.error("Failed to upgrade subscription:", error);
+      return {
+        success: false,
+        message: `Failed to upgrade to ${planName}. Please try again.`,
+      } as const;
+    }
   }
 
   return {
     success: false,
-    message: "Unknown action",
+    message: "Invalid request parameters",
   } as const;
 };
 
@@ -64,6 +74,7 @@ export default function Subscription() {
   };
   const fetcher = useFetcher();
   const [billingCycle] = useState<"monthly" | "annual">("monthly");
+  const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
 
   const plans = [
     {
@@ -87,7 +98,7 @@ export default function Subscription() {
       description:
         "For growing businesses that need more power and flexibility.",
       features: [
-        "10,000 AI queries per month",
+        "1,000 AI queries per month",
         "Advanced analytics",
         "Priority chat support",
         "Custom integrations",
@@ -106,7 +117,7 @@ export default function Subscription() {
       description:
         "For large businesses with advanced needs and unlimited usage.",
       features: [
-        "Unlimited AI queries",
+        "10,000 AI queries per month",
         "White-label options",
         "Dedicated account manager",
         "Custom development",
@@ -125,8 +136,14 @@ export default function Subscription() {
   ];
 
   const handleUpgrade = (planName: string) => {
+    setLoadingPlan(planName);
     fetcher.submit({ intent: "upgrade_plan", planName }, { method: "POST" });
   };
+
+  // Reset loading state when fetcher is idle
+  if (fetcher.state === "idle" && loadingPlan) {
+    setLoadingPlan(null);
+  }
 
   return (
     <Page>
@@ -208,7 +225,7 @@ export default function Subscription() {
                         variant={"primary"}
                         fullWidth
                         disabled={plan.disabled}
-                        loading={fetcher.state === "submitting"}
+                        loading={loadingPlan === plan.name}
                         onClick={() => handleUpgrade(plan.name)}
                       >
                         {plan.buttonText}

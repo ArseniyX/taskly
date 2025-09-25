@@ -7,6 +7,8 @@ import type { AdminApiContext } from "@shopify/shopify-app-remix/server";
 const mockAIDal: IAIDal = {
   executeGraphQLQuery: vi.fn(),
   getSchemaInfo: vi.fn(),
+  findQueriesByNames: vi.fn(),
+  findMutationsByNames: vi.fn(),
 };
 
 const mockAdmin = {
@@ -87,21 +89,90 @@ describe("AIService", () => {
       expect(mockAIDal.executeGraphQLQuery).not.toHaveBeenCalled();
     });
 
-    it("should handle mutation messages with not implemented response", async () => {
+    it("should handle query messages and execute GraphQL", async () => {
+      const message = "show me my products";
+      const mockSchemaInfo = {
+        queries: [{ name: "products", description: "List products" }],
+        mutations: [],
+      };
+      const mockRelevantQueries = [
+        { name: "products", description: "List products", args: [], type: { name: "Connection", kind: "OBJECT" } }
+      ];
+      const mockExecutionResult = {
+        products: {
+          edges: [{ node: { id: "gid://shopify/Product/1", title: "Test Product" } }]
+        }
+      };
+
+      vi.mocked(mockAIDal.getSchemaInfo).mockResolvedValue(mockSchemaInfo);
+      vi.mocked(mockAIDal.findQueriesByNames).mockResolvedValue(mockRelevantQueries);
+      vi.mocked(mockAIDal.executeGraphQLQuery).mockResolvedValue(mockExecutionResult);
+
+      const result = await aiService.processMessage(mockAdmin, message);
+
+      expect(result.intent).toBe("query");
+      expect(result.query).toContain("products");
+      expect(result.executionResult).toEqual(mockExecutionResult);
+      expect(mockAIDal.getSchemaInfo).toHaveBeenCalledWith(mockAdmin);
+      expect(mockAIDal.findQueriesByNames).toHaveBeenCalledWith(["products"], mockAdmin);
+      expect(mockAIDal.executeGraphQLQuery).toHaveBeenCalled();
+    });
+
+    it("should handle mutation messages and generate GraphQL without execution", async () => {
       const message = "create a new product";
       const mockSchemaInfo = {
         queries: [],
         mutations: [{ name: "productCreate", description: "Create a product" }],
       };
+      const mockRelevantMutations = [
+        { name: "productCreate", description: "Create a product", args: [], type: { name: "Payload", kind: "OBJECT" } }
+      ];
 
       vi.mocked(mockAIDal.getSchemaInfo).mockResolvedValue(mockSchemaInfo);
+      vi.mocked(mockAIDal.findMutationsByNames).mockResolvedValue(mockRelevantMutations);
 
       const result = await aiService.processMessage(mockAdmin, message);
 
       expect(result.intent).toBe("mutation");
-      expect(result.summary).toContain("future update");
-      expect(result.explanation).toContain("safety reasons");
+      expect(result.query).toContain("productCreate");
+      expect(result.explanation).toContain("safety");
+      expect(result.summary).toContain("review it carefully");
+      expect(result.executionResult).toBeNull();
+      expect(mockAIDal.getSchemaInfo).toHaveBeenCalledWith(mockAdmin);
+      expect(mockAIDal.findMutationsByNames).toHaveBeenCalledWith(["productCreate"], mockAdmin);
       expect(mockAIDal.executeGraphQLQuery).not.toHaveBeenCalled();
+    });
+
+    it("should handle query execution errors gracefully", async () => {
+      const message = "show me my orders";
+      const mockSchemaInfo = {
+        queries: [{ name: "orders", description: "List orders" }],
+        mutations: [],
+      };
+      const mockRelevantQueries = [
+        { name: "orders", description: "List orders", args: [], type: { name: "Connection", kind: "OBJECT" } }
+      ];
+
+      vi.mocked(mockAIDal.getSchemaInfo).mockResolvedValue(mockSchemaInfo);
+      vi.mocked(mockAIDal.findQueriesByNames).mockResolvedValue(mockRelevantQueries);
+      vi.mocked(mockAIDal.executeGraphQLQuery).mockRejectedValue(new Error("GraphQL execution failed"));
+
+      const result = await aiService.processMessage(mockAdmin, message);
+
+      expect(result.intent).toBe("query");
+      expect(result.executionResult).toBeNull();
+      expect(result.summary).toBe("No data available.");
+    });
+
+    it("should handle schema fetch errors", async () => {
+      const message = "show me my products";
+
+      vi.mocked(mockAIDal.getSchemaInfo).mockRejectedValue(new Error("Schema fetch failed"));
+
+      const result = await aiService.processMessage(mockAdmin, message);
+
+      expect(result.intent).toBe("message");
+      expect(result.summary).toBe("No data available.");
     });
   });
 });

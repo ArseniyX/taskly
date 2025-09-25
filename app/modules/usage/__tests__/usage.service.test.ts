@@ -141,7 +141,7 @@ describe("UsageService", () => {
       expect(result).toEqual({
         isWithinLimit: true,
         currentUsage: 1000,
-        limit: -1,
+        limit: 10000,
         planName: "Enterprise Plan",
       });
     });

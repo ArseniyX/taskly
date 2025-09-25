@@ -94,9 +94,14 @@ export class AIService {
       const schemaInfo = await this.dal.getSchemaInfo(admin);
 
       // 2. Identify relevant queries using AI
-      const relevantQueries = await this.aiExternal.determineRelevantQueries(
+      const relevantQueryNames = await this.aiExternal.determineRelevantQueries(
         message,
         schemaInfo.queries,
+      );
+
+      const relevantQueries = await this.dal.findQueriesByNames(
+        relevantQueryNames,
+        admin,
       );
 
       // 3. Generate GraphQL query using AI (it will determine the operation type)
@@ -138,21 +143,35 @@ export class AIService {
     message: string,
   ): Promise<QueryResult> {
     try {
-      // 1. Get mutation schema information
+      // 1. Get schema information
       const schemaInfo = await this.dal.getSchemaInfo(admin);
 
       // 2. Identify relevant mutations using AI
-      const relevantMutations =
+      const relevantMutationNames =
         await this.aiExternal.determineRelevantMutations(
           message,
           schemaInfo.mutations,
         );
 
+      const relevantMutations = await this.dal.findMutationsByNames(
+        relevantMutationNames,
+        admin,
+      );
+
+      // 3. Generate GraphQL mutation using AI
+      const { query } = await this.aiExternal.buildMutation(
+        message,
+        relevantMutations,
+      );
+
+      // 4. For safety, we don't execute mutations automatically
+      // Return the generated mutation for review
       return {
-        query: "",
-        explanation: `Mutation operations are not yet implemented for safety reasons. Found ${relevantMutations.length} relevant mutations. This feature is coming soon!`,
-        summary: `I understand you want to make changes to your store data. For now, I can only read and analyze your store information. Mutation operations will be available in a future update.`,
+        query,
+        explanation: `Generated a GraphQL mutation based on: "${message}". For safety, mutations are not executed automatically.`,
+        summary: `I've generated a mutation for your request. Please review it carefully before executing, as it will modify your store data.`,
         intent: "mutation",
+        executionResult: null,
       };
     } catch (error) {
       return await this.handleError(message, error);

@@ -1,11 +1,16 @@
-import type { UsageData, UsageLimitCheck, UsageStats, PlanName } from "./usage.types";
+import type {
+  UsageData,
+  UsageLimitCheck,
+  UsageStats,
+  PlanName,
+} from "./usage.types";
 import type { IUsageDal } from "./usage.dal";
 
 export class UsageService {
   private readonly planLimits: Record<PlanName, number> = {
     "Free Plan": 20,
-    "Pro Plan": 10000,
-    "Enterprise Plan": -1, // unlimited
+    "Pro Plan": 1000,
+    "Enterprise Plan": 10_000, // unlimited
   };
 
   constructor(private dal: IUsageDal) {}
@@ -23,7 +28,10 @@ export class UsageService {
     });
   }
 
-  async getUsageForCurrentMonth(shop: string, usageType?: string): Promise<number> {
+  async getUsageForCurrentMonth(
+    shop: string,
+    usageType?: string,
+  ): Promise<number> {
     const { startOfMonth, endOfMonth } = this.getCurrentMonthDateRange();
 
     const where: any = {
@@ -42,7 +50,10 @@ export class UsageService {
     return records.reduce((total, record) => total + record.count, 0);
   }
 
-  async checkUsageLimit(shop: string, usageType: string = "chat_query"): Promise<UsageLimitCheck> {
+  async checkUsageLimit(
+    shop: string,
+    usageType: string = "chat_query",
+  ): Promise<UsageLimitCheck> {
     const subscription = await this.getOrCreateSubscription(shop);
     const limit = this.planLimits[subscription.planName as PlanName] || 20;
     const currentUsage = await this.getUsageForCurrentMonth(shop, usageType);
@@ -56,12 +67,9 @@ export class UsageService {
   }
 
   async getUsageStats(shop: string): Promise<UsageStats> {
-    const subscription = await this.dal.findSubscriptionWithUsageRecords(
-      shop,
-      {
-        gte: this.getCurrentMonthDateRange().startOfMonth,
-      }
-    );
+    const subscription = await this.dal.findSubscriptionWithUsageRecords(shop, {
+      gte: this.getCurrentMonthDateRange().startOfMonth,
+    });
 
     if (!subscription) {
       return {
@@ -73,7 +81,7 @@ export class UsageService {
 
     const currentMonthUsage = subscription.usageRecords.reduce(
       (total: number, record: any) => total + record.count,
-      0
+      0,
     );
 
     const totalUsage = await this.dal.countUsageRecords({
@@ -85,6 +93,16 @@ export class UsageService {
       totalUsage,
       subscription,
     };
+  }
+
+  async updateSubscription(shop: string, planName: PlanName) {
+    // Ensure the subscription exists first
+    await this.getOrCreateSubscription(shop);
+
+    return await this.dal.updateSubscription(shop, {
+      planName,
+      status: "active",
+    });
   }
 
   private async getOrCreateSubscription(shop: string) {

@@ -3,6 +3,7 @@ import type { Subscription, UsageRecord } from "@prisma/client";
 export interface IUsageDal {
   findSubscription(shop: string): Promise<Subscription | null>;
   createSubscription(data: { shop: string; planName: string; status: string }): Promise<Subscription>;
+  updateSubscription(shop: string, data: { planName?: string; status?: string }): Promise<Subscription>;
   createUsageRecord(data: {
     shop: string;
     subscriptionId: string;
@@ -27,6 +28,13 @@ export class UsageDal implements IUsageDal {
 
   async createSubscription(data: { shop: string; planName: string; status: string }): Promise<Subscription> {
     return await this.prisma.subscription.create({
+      data,
+    });
+  }
+
+  async updateSubscription(shop: string, data: { planName?: string; status?: string }): Promise<Subscription> {
+    return await this.prisma.subscription.update({
+      where: { shop },
       data,
     });
   }
